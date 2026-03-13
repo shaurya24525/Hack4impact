@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "BetterWeb: Universal Accessibility",
+  "version": "2.0.2",
+  "description": "Universal accessibility toolkit that adapts web pages for dyslexia, color blindness, low vision, motor and cognitive differences — live previews, presets, and simple controls.",
+  "permissions": [
+    "activeTab", 
+    "scripting", 
+    "storage"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "BetterWeb",
+    "default_icon": {
+  "16": "icons/icon16.png",
+  "48": "icons/icon48.png",
+  "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "commands": {
+    "toggle-speech": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+A"
+      },
+      "description": "Start speech recognition"
+    },
+    "reset-settings": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+R"
+      },
+      "description": "Reset all accessibility settings"
+    }
+  }
+}
