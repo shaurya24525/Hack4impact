@@ -6,6 +6,7 @@ import { ChatHistory } from './chat-history/ChatHistory'
 import { ChatInput } from './ChatInput'
 import { TodoList } from './TodoList'
 
+
 export function ChatPanel() {
 	const agent = useAgent()
 	const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -14,16 +15,8 @@ export function ChatPanel() {
 	const speechEnabled = useValue('speechEnabled', () => agent.speech.isEnabled(), [agent])
 	const speechSupported = agent.speech.isSupported()
 
-	const recordArmed = useValue('recordArmed', () => agent.recording.isArmed(), [agent])
-	const recordActive = useValue('recordActive', () => agent.recording.isRecording(), [agent])
-	const recordSupported = agent.recording.isSupported()
-
 	const handleToggleSpeech = useCallback(() => {
 		agent.speech.toggle()
-	}, [agent])
-
-	const handleToggleRecord = useCallback(() => {
-		agent.recording.toggleArmed()
 	}, [agent])
 
 	const handleSubmit = useCallback<FormEventHandler<HTMLFormElement>>(
@@ -41,15 +34,6 @@ export function ChatPanel() {
 
 			// Clear the chat input (context is cleared after it's captured in requestAgentActions)
 			inputRef.current.value = ''
-
-			// If recording is armed, open the screen-picker NOW (this is a user gesture context)
-			// getDisplayMedia must be called here — it cannot be called from inside async agent code
-			if (agent.recording.isArmed()) {
-				const granted = await agent.recording.requestStream()
-				if (!granted) {
-					// User dismissed the dialog — proceed without recording
-				}
-			}
 
 			// Sending a new message to the agent should interrupt the current request
 			agent.interrupt({
@@ -81,15 +65,6 @@ export function ChatPanel() {
 						title={speechEnabled ? 'Disable voice' : 'Enable voice'}
 					>
 						{speechEnabled ? '🔊' : '🔇'}
-					</button>
-				)}
-				{recordSupported && (
-					<button
-						className={`record-button ${recordArmed ? 'armed' : ''} ${recordActive ? 'recording' : ''}`}
-						onClick={handleToggleRecord}
-						title={recordActive ? 'Recording… (will download when done)' : recordArmed ? 'Recording armed — send a message to start' : 'Record next session'}
-					>
-						{recordActive ? '⏺' : '🔴'}
 					</button>
 				)}
 				<button

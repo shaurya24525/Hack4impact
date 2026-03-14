@@ -5,37 +5,50 @@ import type { TldrawAgent } from '../TldrawAgent'
 import { BaseAgentManager } from './BaseAgentManager'
 
 /**
- * Manages text-to-speech for agent actions — real-time & in sync.
+ * Manages text-to-speech for agent actions using the Web Speech API.
  *
- * Speech is triggered **immediately** when a speakable action completes.
- * A sequential queue ensures utterances never interrupt each other:
- * each sentence finishes naturally before the next begins.
- *
- * Because the LLM interleaves `message` actions between `create` / `label`
- * actions, speaking messages immediately means narration and drawing happen
- * concurrently — the user hears explanations *while* seeing shapes appear.
- *
- * Sentences are kept short (≤ 200 chars) to avoid Chrome's long-utterance
- * pause bug, with a periodic `resume()` timer as an extra safeguard.
+ * Speech is queued as actions complete and played back sequentially.
+ * Each sentence finishes before the next begins.
  */
 export class AgentSpeechManager extends BaseAgentManager {
 	private $enabled = atom('speechEnabled', true)
-
-	/** Sentences waiting to be spoken, played one at a time. */
 	private queue: string[] = []
 	private isSpeaking = false
+	private voicesReady = false
 
 	/**
-	 * Chrome silently pauses long utterances after ~15 s.
-	 * A periodic `speechSynthesis.resume()` keeps them alive.
+	 * Chrome pauses long utterances after ~15s.
+	 * A periodic resume() call keeps them alive.
 	 */
 	private resumeTimer: ReturnType<typeof setInterval> | null = null
 
 	constructor(agent: TldrawAgent) {
 		super(agent)
+		this.initVoices()
 	}
 
-	// ───────── basic controls ─────────
+	/**
+	 * Chrome loads voices asynchronously. We must wait for them
+	 * before calling speak(), otherwise it silently does nothing.
+	 */
+	private initVoices(): void {
+		if (!this.isSupported()) return
+		const synth = window.speechSynthesis
+		if (synth.getVoices().length > 0) {
+			this.voicesReady = true
+			return
+		}
+		const handler = () => {
+			this.voicesReady = true
+			synth.removeEventListener('voiceschanged', handler)
+			// Flush anything that was queued before voices loaded
+			if (this.queue.length > 0 && !this.isSpeaking) {
+				this.drainQueue()
+			}
+		}
+		synth.addEventListener('voiceschanged', handler)
+		synth.getVoices() // triggers load in Chrome
+	}
 
 	isSupported(): boolean {
 		return typeof window !== 'undefined' && 'speechSynthesis' in window
@@ -54,7 +67,6 @@ export class AgentSpeechManager extends BaseAgentManager {
 		this.setEnabled(!this.isEnabled())
 	}
 
-	/** Cancel all speech and clear the queue. */
 	stop(): void {
 		if (!this.isSupported()) return
 		this.queue = []
@@ -63,12 +75,9 @@ export class AgentSpeechManager extends BaseAgentManager {
 		window.speechSynthesis.cancel()
 	}
 
-	// ───────── real-time speaking ─────────
-
 	/**
-	 * Called for every completed action while drawing is in progress.
-	 * Speakable text is cleaned, split into sentences, and queued.
-	 * Playback starts immediately — it runs **alongside** drawing.
+	 * Called for every completed action. Extracts speakable text,
+	 * queues it, and kicks off playback if idle.
 	 */
 	handleCompletedAction(action: Streaming<AgentAction>): void {
 		if (!action.complete) return
@@ -76,26 +85,24 @@ export class AgentSpeechManager extends BaseAgentManager {
 
 		const text = this.extractSpeakableText(action)
 		if (!text) return
-
 		const cleaned = this.cleanTextForSpeech(text)
 		if (!cleaned) return
 
-		// Split into short sentences and enqueue
 		const sentences = this.splitIntoSentences(cleaned)
-		for (const s of sentences) {
-			this.queue.push(s)
-		}
+		this.queue.push(...sentences)
 
-		// If nothing is currently speaking, kick off playback
-		if (!this.isSpeaking) {
-			this.playNext()
+		if (!this.isSpeaking && this.voicesReady) {
+			this.drainQueue()
 		}
-		// Otherwise the current utterance's onend will chain to the next
 	}
 
-	// ───────── sequential playback ─────────
+	// ─── Playback ───
 
-	private playNext(): void {
+	/**
+	 * Speak sentences one at a time. Each utterance's `onend` triggers the next.
+	 * No cancel() before speak() — that's the #1 cause of silent failures in Chrome.
+	 */
+	private drainQueue(): void {
 		if (this.queue.length === 0) {
 			this.isSpeaking = false
 			this.stopResumeTimer()
@@ -104,6 +111,7 @@ export class AgentSpeechManager extends BaseAgentManager {
 
 		this.isSpeaking = true
 		const text = this.queue.shift()!
+		const synth = window.speechSynthesis
 		const utterance = new SpeechSynthesisUtterance(text)
 
 		const isSlowPaced = this.agent.accessibility.get('slowPacedMode')
@@ -111,14 +119,29 @@ export class AgentSpeechManager extends BaseAgentManager {
 		utterance.pitch = 1.0
 		utterance.volume = 1.0
 
-		utterance.onend = () => this.playNext()
-		utterance.onerror = () => this.playNext()
+		// Explicitly pick a voice — Chrome's default can be muted/broken
+		const voices = synth.getVoices()
+		const voice =
+			voices.find((v) => v.lang.startsWith('en') && v.localService) ||
+			voices.find((v) => v.lang.startsWith('en')) ||
+			voices[0]
+		if (voice) utterance.voice = voice
 
-		window.speechSynthesis.speak(utterance)
+		// Guard against double-advance
+		let done = false
+		const next = () => {
+			if (done) return
+			done = true
+			this.drainQueue()
+		}
+		utterance.onend = next
+		utterance.onerror = next
+
+		synth.speak(utterance)
 		this.startResumeTimer()
 	}
 
-	// ───────── Chrome resume workaround ─────────
+	// ─── Chrome resume workaround ───
 
 	private startResumeTimer(): void {
 		if (this.resumeTimer) return
@@ -126,7 +149,7 @@ export class AgentSpeechManager extends BaseAgentManager {
 			if (window.speechSynthesis.speaking) {
 				window.speechSynthesis.resume()
 			}
-		}, 5000)
+		}, 5_000)
 	}
 
 	private stopResumeTimer(): void {
@@ -136,14 +159,8 @@ export class AgentSpeechManager extends BaseAgentManager {
 		}
 	}
 
-	// ───────── text extraction ─────────
+	// ─── Text extraction ───
 
-	/**
-	 * Only 'message' actions are spoken — they are the real user-facing
-	 * explanations. `think` / `review` / `add-detail` are internal reasoning
-	 * and must never be read aloud.
-	 * In slow-paced mode, canvas actions are also narrated.
-	 */
 	private extractSpeakableText(action: Streaming<AgentAction>): string | null {
 		const isSlowPaced = this.agent.accessibility.get('slowPacedMode')
 
@@ -155,33 +172,26 @@ export class AgentSpeechManager extends BaseAgentManager {
 			case 'add-detail':
 				return null
 			case 'create':
-				if (isSlowPaced && (action as any).intent) {
-					return `Creating: ${(action as any).intent}`
-				}
-				return null
+				return isSlowPaced && (action as any).intent
+					? `Creating: ${(action as any).intent}`
+					: null
 			case 'label':
-				if (isSlowPaced && (action as any).text) {
-					return `Label: ${(action as any).text}`
-				}
-				return null
+				return isSlowPaced && (action as any).text
+					? `Label: ${(action as any).text}`
+					: null
 			case 'move':
-				if (isSlowPaced && (action as any).intent) {
-					return `Moving: ${(action as any).intent}`
-				}
-				return null
+				return isSlowPaced && (action as any).intent
+					? `Moving: ${(action as any).intent}`
+					: null
 			case 'delete':
-				if (isSlowPaced && (action as any).intent) {
-					return `Removing: ${(action as any).intent}`
-				}
-				return null
+				return isSlowPaced && (action as any).intent
+					? `Removing: ${(action as any).intent}`
+					: null
 			default:
 				return null
 		}
 	}
 
-	/**
-	 * Strip reasoning sentences that leak from the LLM into message text.
-	 */
 	private stripReasoning(text: string): string | null {
 		const sentences = text.split(/(?<=[.!?])\s+/)
 		const kept = sentences.filter((s) => {
@@ -207,17 +217,12 @@ export class AgentSpeechManager extends BaseAgentManager {
 		return result || null
 	}
 
-	// ───────── helpers ─────────
+	// ─── Helpers ───
 
-	/**
-	 * Split cleaned text into sentence-sized chunks (≤ 200 chars each)
-	 * so Chrome never gets a single utterance long enough to stall.
-	 */
 	private splitIntoSentences(text: string): string[] {
 		const raw = text.match(/[^.!?]+[.!?]+\s*/g) || [text]
 		const result: string[] = []
 		let current = ''
-
 		for (const segment of raw) {
 			if (current.length + segment.length > 200 && current) {
 				result.push(current.trim())
@@ -225,26 +230,22 @@ export class AgentSpeechManager extends BaseAgentManager {
 			}
 			current += segment
 		}
-		if (current.trim()) {
-			result.push(current.trim())
-		}
+		if (current.trim()) result.push(current.trim())
 		return result
 	}
 
 	private cleanTextForSpeech(text: string): string {
-		return (
-			text
-				.replace(/\*{1,3}(.*?)\*{1,3}/g, '$1')
-				.replace(/^#{1,6}\s+/gm, '')
-				.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-				.replace(/```[\s\S]*?```/g, '')
-				.replace(/`([^`]+)`/g, '$1')
-				.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-				.replace(/\n{2,}/g, '. ')
-				.replace(/\n/g, ' ')
-				.replace(/\s{2,}/g, ' ')
-				.trim()
-		)
+		return text
+			.replace(/\*{1,3}(.*?)\*{1,3}/g, '$1')
+			.replace(/^#{1,6}\s+/gm, '')
+			.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+			.replace(/```[\s\S]*?```/g, '')
+			.replace(/`([^`]+)`/g, '$1')
+			.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+			.replace(/\n{2,}/g, '. ')
+			.replace(/\n/g, ' ')
+			.replace(/\s{2,}/g, ' ')
+			.trim()
 	}
 
 	reset(): void {

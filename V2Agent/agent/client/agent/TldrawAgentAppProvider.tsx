@@ -107,6 +107,27 @@ export const TldrawAgentAppProvider = memo(function TldrawAgentAppProvider({
 		}
 	}, [editor, handleError, onMount, onUnmount])
 
+	// Clear the board when Delete is pressed with nothing selected
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== 'Delete' && e.key !== 'Backspace') return
+			if (
+				e.target instanceof HTMLInputElement ||
+				e.target instanceof HTMLTextAreaElement
+			)
+				return
+			const selected = editor.getSelectedShapes()
+			if (selected.length === 0) {
+				const allShapes = editor.getCurrentPageShapes()
+				if (allShapes.length > 0) {
+					editor.deleteShapes(allShapes)
+				}
+			}
+		}
+		window.addEventListener('keydown', handleKeyDown)
+		return () => window.removeEventListener('keydown', handleKeyDown)
+	}, [editor])
+
 	// Don't render children until app exists
 	if (!app) {
 		return null

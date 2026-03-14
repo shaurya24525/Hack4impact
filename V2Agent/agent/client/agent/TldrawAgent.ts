@@ -16,7 +16,6 @@ import { AgentModeType } from '../modes/AgentModeDefinitions'
 import { getPromptPartUtilsRecord, PromptPartUtil } from '../parts/PromptPartUtil'
 import { AgentAccessibilityManager } from './managers/AgentAccessibilityManager'
 import { AgentActionManager } from './managers/AgentActionManager'
-import { AgentRecordingManager } from './managers/AgentRecordingManager'
 import { AgentChatManager } from './managers/AgentChatManager'
 import { AgentChatOriginManager } from './managers/AgentChatOriginManager'
 import { AgentContextManager } from './managers/AgentContextManager'
@@ -104,9 +103,6 @@ export class TldrawAgent {
 	/** The request manager associated with this agent. */
 	requests: AgentRequestManager
 
-	/** The recording manager for screen capture and download. */
-	recording: AgentRecordingManager
-
 	/** The speech manager for text-to-speech output. */
 	speech: AgentSpeechManager
 
@@ -154,7 +150,6 @@ export class TldrawAgent {
 		this.lints = new AgentLintManager(this)
 		this.modelName = new AgentModelNameManager(this)
 		this.requests = new AgentRequestManager(this)
-		this.recording = new AgentRecordingManager(this)
 		this.speech = new AgentSpeechManager(this)
 		this.todos = new AgentTodoManager(this)
 		this.userAction = new AgentUserActionTracker(this)
@@ -553,7 +548,6 @@ export class TldrawAgent {
 		}
 
 		this.speech.stop()
-		this.recording.stopRecording()
 		this.requests.cancel()
 	}
 
@@ -568,7 +562,6 @@ export class TldrawAgent {
 		this.accessibility.reset()
 		this.actions.reset()
 		this.chat.reset()
-		this.recording.reset()
 		this.chatOrigin.reset()
 		this.context.reset()
 		this.lints.reset()
@@ -621,8 +614,6 @@ export class TldrawAgent {
 			const prompt = await this.preparePrompt(request, helpers)
 			let incompleteDiff: RecordsDiff<TLRecord> | null = null
 			const actionPromises: Promise<void>[] = []
-			// Start recording now — stream was acquired in the user-gesture submit handler
-			this.recording.startRecording()
 			try {
 				for await (const action of this.streamAgentActions({ prompt, signal })) {
 					if (cancelled) break
@@ -687,10 +678,7 @@ export class TldrawAgent {
 					}
 				}
 				await Promise.all(actionPromises)
-				// Agent finished — stop recording and trigger download
-				this.recording.stopRecording()
 			} catch (e) {
-				this.recording.stopRecording()
 				if (e === 'Cancelled by user' || (e instanceof Error && e.name === 'AbortError')) {
 					return
 				}
