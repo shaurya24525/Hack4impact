@@ -151,13 +151,13 @@ export const CanvasLintsPartDefinition: PromptPartDefinition<CanvasLintsPart> = 
 		const friendlessArrowLints = lints.filter((l) => l.type === 'friendless-arrow')
 
 		messages.push(
-			"[LINTER]: The following potential visual problems have been detected in the canvas. You should decide if you want to address them. Defer to your view of the canvas to decide if you need to make changes; it's very possible that you don't need to make any changes."
+			'[LINTER]: The following visual problems have been detected in the canvas. Overlapping text and shapes make the content unreadable — you MUST fix these issues by moving, resizing, or re-spacing the affected shapes.'
 		)
 
 		if (growYLints.length > 0) {
 			const shapeIds = growYLints.flatMap((l) => l.shapeIds)
 			const lines = [
-				'Text overflow: These shapes have text that caused their containers to grow past the size that they were intended to be, potentially breaking out of their container. If you decide to fix: you need to set the height back to what you originally intended after increasing the width.',
+				'Text overflow: These shapes have text that caused their containers to grow past their intended size, breaking out of their container. You MUST fix this: increase the shape width so the text fits, then set the height back to what you originally intended. Also move any neighboring shapes to prevent new overlaps.',
 				...shapeIds.map((id) => `  - ${id}`),
 			]
 			messages.push(lines.join('\n'))
@@ -165,7 +165,7 @@ export const CanvasLintsPartDefinition: PromptPartDefinition<CanvasLintsPart> = 
 
 		if (overlappingTextLints.length > 0) {
 			const lines = [
-				'Overlapping text: The shapes in each group have text and overlap each other, which may make text hard to read. If you decide to fix this, you may need to increase the size of any shapes containing the text.',
+				'Overlapping text: The shapes in each group have text and overlap each other, making the content unreadable. You MUST fix this by moving shapes apart (add at least 40px gap), making containers wider, or repositioning text so nothing overlaps.',
 				...overlappingTextLints.map((lint) => `  - ${lint.shapeIds.join(', ')}`),
 			]
 			messages.push(lines.join('\n'))

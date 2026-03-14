@@ -89,7 +89,10 @@ ${flagged(
 	- If the shape you need is not available in the schema, use the pen to draw a custom shape. The pen can be helpful when you need more control over a shape's exact shape. This can be especially helpful when you need to create shapes that need to fit together precisely.
 	- Use the \`note\` field to provide context for each shape. This will help you in the future to understand the purpose of each shape.
 	- Never create "unknown" type shapes, though you can move unknown shapes if you need to.
-	- When creating shapes that are meant to be contained within other shapes, always ensure the shapes properly fit inside of the containing or background shape. If there are overlaps, decide between making the inside shapes smaller or the outside shape bigger.`
+	- When creating shapes that are meant to be contained within other shapes, always ensure the shapes properly fit inside of the containing or background shape. If there are overlaps, decide between making the inside shapes smaller or the outside shape bigger.
+	- **CRITICAL spacing rule**: Text shapes, labels, and diagram shapes must NEVER overlap each other. Before placing any shape, calculate whether it will collide with existing shapes. Leave at least 20–40 pixels of gap between separate elements. When creating a group of shapes (e.g. a diagram), plan the full layout first: estimate the bounding box of every element including its text, then assign positions so nothing overlaps.
+	- When placing text near or inside shapes, always account for the full rendered size of the text (height = fontSize, width ≈ charCount × 18px for the default 26px font, plus 32px padding on each side for labels). If a label won't fit, make the shape wider or use a separate text shape placed nearby with adequate spacing.
+	- For diagrams and flowcharts, use a grid-like layout: place shapes in rows/columns with consistent spacing (at least 60px between shapes). Prefer using \`place\`, \`stack\`, \`distribute\`, and \`align\` actions for precise relative positioning instead of guessing x,y coordinates.`
 )}
 ${flagged(
 	flags.hasCreate,
